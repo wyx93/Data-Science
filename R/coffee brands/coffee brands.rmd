@@ -1,0 +1,191 @@
+---
+title: "Lab4"
+author: "Stella (Yuxin) Wan"
+date: "2019/10/10"
+output: html_document
+---
+```{r}
+library(XML)
+library(rvest)
+library(tidyverse)
+library(data.table)
+```
+
+## Scrape the Location Counts
+### 1.1 Make a table of brands and related url
+```{r}
+coffeeBrands<-data.table(brands=c( 'Starbucks',
+                                   'Dunkin Donuts',
+                                   'Peets',
+                                   'Tim Hortons',
+                                   'Panera Bread',
+                                   'Caribou Coffee',
+                                   'Au Bon Pain',
+                                   'The coffee Bean & Tea Leaf',
+                                   "McDonald's"),
+url= c("https://www.menuism.com/restaurant-locations/starbucks-coffee-39564",
+        "https://www.menuism.com/restaurant-locations/dunkin-donuts-181624",
+        "https://www.menuism.com/restaurant-locations/peets-coffee-tea-84051",
+        "https://www.menuism.com/restaurant-locations/tim-hortons-190025",
+        "https://www.menuism.com/restaurant-locations/panera-bread-4258",
+        "https://www.menuism.com/restaurant-locations/caribou-coffee-164861",
+        "https://www.menuism.com/restaurant-locations/au-bon-pain-69342",
+        "https://www.menuism.com/restaurant-locations/the-coffee-bean-tea-leaf-165988",
+        "https://www.menuism.com/restaurant-locations/mcdonalds-21019"
+))
+```
+
+### 1.2 Print location text given url
+```{r}
+LocationCounts<- function(url){
+    link<- read_html(url)
+    webpage<- html_nodes(link,css = "section div div div ul li a")
+    data<- html_text(webpage)
+    return(data)
+}
+```
+
+### 1.3 Covert to table with state,abb and number of locations given data
+
+#stateabb
+```{r}
+stateabb <- function(fullStateName){
+  return (state.abb[which(state.name == fullStateName)])
+}
+```
+
+```{r}
+statesAndNumberofLocation<- function(data){
+  #Extract US states regular expression
+  regexStates <- "(Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New\ Hampshire|New\ Jersey|New\ Mexico|New\ York|North\ Carolina|North\ Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode\ Island|South\ Carolina|South\ Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West\ Virginia|Wisconsin|Wyoming)"
+  #Extract numbers of locations regular expression
+  regexNumbers<- '[0-9]+'
+  result <- data.table(state = character(), abb=character(), number = integer())
+  #loop every line to ???
+  for (i in 1:length(data)){
+    #see if it matches a US states
+    isInUS<- grepl(regexStates,data[i])
+    if (isInUS == TRUE){
+      #get state name using regex
+      stateMatch <- regexpr(regexStates,data[i])
+      fullStateName <- regmatches(data[i],stateMatch)
+      #convert to abb
+      stateAbb <- stateabb(fullStateName)
+      #get number using regex
+      numberMatch <- regexpr(regexNumbers,data[i])
+      number <- as.integer(regmatches(data[i],numberMatch))
+      # add to the table
+      result <- rbind(result,data.table(state = fullStateName, abb = stateAbb, number = number))
+    }
+  }
+  return (result)
+}
+```
+    
+
+#For each brand, get number of locations and make a bigg table
+```{r}
+for (i in 1:nrow(coffeeBrands)){
+  rawdata <- LocationCounts(coffeeBrands[i, url])
+  table <- statesAndNumberofLocation(rawdata)
+  colnames(table)[3] <- coffeeBrands[i, brands]
+  if (exists("bigTable")){
+    bigTable <- merge(x= bigTable, y= table, by= c("state","abb"), all = TRUE)
+  } else{
+    bigTable <- table
+  }
+}
+bigTable
+```
+
+## Supplemental Data
+### 2.1 Get states and population (question 4)
+```{r}
+statesPopulationurl<-
+"https://simple.wikipedia.org/wiki/List_of_U.S._states_by_population"
+statesPopulationlink <- read_html(statesPopulationurl)
+statesPopulationhtml <- html_nodes(statesPopulationlink, css="table")
+statesPoplulationData <- html_table(statesPopulationhtml)[[1]][,3:4]
+#Rename the columns
+colnames(statesPoplulationData)[1:2] <- c('state','population')
+statesPoplulationDT<- data.table(statesPoplulationData)
+#Merge state and population table with previous big table
+hugeTable<- merge(x= bigTable, y= statesPoplulationDT, all.x = TRUE, by ='state') 
+hugeTable
+```
+
+### 2.2 Get market cap data (question 5)
+```{r}
+M<- 10^6
+B<- 10^9
+hugeTable$Starbucks_mc<- 103.792*B   
+hugeTable$Donuts_mc<- 6.398*B
+hugeTable$Peets_mc<- 507.07*M
+hugeTable$Hortons_mc<- 11.39*B
+hugeTable$Bread_mc<- 7.154*B
+hugeTable$Coffee_mc<- 325.56*M
+hugeTable$Pain_mc<- 100*M
+hugeTable$Leaf_mc<- 350*M
+hugeTable$McDonald_mc<- 160.347*B
+hugeTable
+```
+
+### 2.3 Create a region variable (question 6)
+```{r}
+#Create table with state and region
+regionTable <- data.table(state = state.name, region = state.region)
+#merge it to the bigTable
+hugeTable <- merge(x= hugeTable, y= regionTable, by= c("state"), all.x = TRUE)
+hugeTable
+```
+
+## Analyze
+### Coffee brands of top number of stores in states
+3.1 Are some of these chains more prevalent in certain states than others? Possibly depsite having less stores overall? Same questions for regions instead of states. 
+```{r}
+for (i in 3:11){
+  brands <- colnames(hugeTable)[i]
+  stateAndBrandNumber <- hugeTable %>% 
+    select(1,brands,22)
+  #print(stateAndBrandNumber)
+  stateAndBrandNumber[order(desc(stateAndBrandNumber[[brands]]))][1:10] %>% 
+  print()
+}
+    ```
+ - Starbucks is more prevalent in California than other brands with most stores, and is the most prevalent brand in the west 
+ - Dunkin Donuts is more prevalent in Massachusetts than other brands, and is the most prevalent brand in northeast with most stores 
+ - Peets is more prevalent in California than in other states although  it does not have many stores  
+ - Tim Hortons is more prevalent in Michigan than other brands although  it does not have many stores 
+ - Panera Bread is more prevalent in Florida than other brands 
+ - Calibou Coffee is more prevalent in Minnesota than other brands 
+ - The coffee Bean & Tea Leaf is more prevalent in California than in other states although it does not have many stores 
+ - McDonald's is the most prevalent brand in the south and north central 
+
+3.2 Do the market cap data match what you’d expect based on the number and locations of the stores? Why or why not?
+```{r}
+coffeeMC <- data.table(
+  brands=c(
+    'Starbucks',
+    'Dunkin Donuts',
+    'Peets',
+    'Tim Hortons',
+    'Panera Bread',
+    'Caribou Coffee',
+    'Au Bon Pain',
+    'The coffee Bean & Tea Leaf',
+    "McDonald's"),
+  MC=c(103.792*B,6.398*B,507.07*M,11.39*B,7.154*B,325.56*M,100*M,350*M,160.347*B))
+#Make a table of total location by state
+TotalLocationByState<- hugeTable[,3:11][, lapply(.SD, sum, na.rm=T),] %>% 
+  gather(brands, totalNumber)
+#Merge coffeeMC with TotalLocationByState
+NewTable<- merge(x=coffeeMC, y= TotalLocationByState, by='brands', all=TRUE)
+arrange(NewTable,desc(MC))
+```
+
+ - No. McDonald's,Starbucks and Tim Hortons are the coffee brands with top 3 market value. So I expected them to have most locations as well. However, the number of locations of Tim Hortons is actually not big.
+
+```{r}
+write.csv(hugeTable,"C:/Users/Stella/Desktop/temp/hugeTable.csv")
+```
+
